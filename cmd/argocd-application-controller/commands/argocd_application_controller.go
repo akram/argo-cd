@@ -10,7 +10,9 @@ import (
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
 	cmdutil "github.com/argoproj/argo-cd/v2/cmd/util"
@@ -86,11 +88,7 @@ func NewCommand() *cobra.Command {
 			cli.SetLogLevel(cmdutil.LogLevel)
 			cli.SetGLogLevel(glogLevel)
 
-			config, err := clientConfig.ClientConfig()
-			errors.CheckError(err)
-			errors.CheckError(v1alpha1.SetK8SConfigDefaults(config))
-			config.UserAgent = fmt.Sprintf("argocd-application-controller/%s (%s)", vers.Version, vers.Platform)
-
+			config := intialiazeConfig(clientConfig, common.GetVersion())
 			kubeClient := kubernetes.NewForConfigOrDie(config)
 			appClient := appclientset.NewForConfigOrDie(config)
 
@@ -134,7 +132,7 @@ func NewCommand() *cobra.Command {
 				appController.InvalidateProjectsCache()
 			}))
 			kubectl := kubeutil.NewKubectl()
-			clusterFilter := getClusterFilter()
+			clusterFilter := getClusterFilter(clientConfig)
 			appController, err = controller.NewApplicationController(
 				namespace,
 				settingsMgr,
@@ -201,8 +199,24 @@ func NewCommand() *cobra.Command {
 	return &command
 }
 
-func getClusterFilter() func(cluster *v1alpha1.Cluster) bool {
-	replicas := env.ParseNumFromEnv(common.EnvControllerReplicas, 0, 0, math.MaxInt32)
+func intialiazeConfig(clientConfig clientcmd.ClientConfig, vers common.Version) *rest.Config {
+	config, err := clientConfig.ClientConfig()
+	errors.CheckError(err)
+	errors.CheckError(v1alpha1.SetK8SConfigDefaults(config))
+	config.UserAgent = fmt.Sprintf("argocd-application-controller/%s (%s)", vers.Version, vers.Platform)
+	return config
+}
+
+func getClusterFilter(clientConfig clientcmd.ClientConfig) func(cluster *v1alpha1.Cluster) bool {
+	config := intialiazeConfig(clientConfig, common.GetVersion())
+	kubeClient := kubernetes.NewForConfigOrDie(config)
+	namespace, _, _ := clientConfig.Namespace()
+	name := "openshift-gitops-application-controller"
+	name = "argocd-application-controller"
+	sts, err := kubeClient.AppsV1().StatefulSets(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	availableReplicas := sts.Status.Replicas
+	replicas := int(availableReplicas)
+	log.Infof("AAA Processing all cluster shards %s: %v", replicas, err)
 	shard := env.ParseNumFromEnv(common.EnvControllerShard, -1, -math.MaxInt32, math.MaxInt32)
 	var clusterFilter func(cluster *v1alpha1.Cluster) bool
 	if replicas > 1 {
@@ -214,7 +228,7 @@ func getClusterFilter() func(cluster *v1alpha1.Cluster) bool {
 		log.Infof("Processing clusters from shard %d", shard)
 		clusterFilter = sharding.GetClusterFilter(replicas, shard)
 	} else {
-		log.Info("Processing all cluster shards")
+		log.Info("AAA Processing all cluster shards")
 	}
 	return clusterFilter
 }
