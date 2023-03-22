@@ -10,9 +10,12 @@ import (
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	v1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 
 	cmdutil "github.com/argoproj/argo-cd/v2/cmd/util"
@@ -40,6 +43,11 @@ const (
 	defaultAppResyncPeriod = 180
 	// Default time in seconds for application hard resync period
 	defaultAppHardResyncPeriod = 0
+)
+
+var (
+	replicas = int32(0)
+	//logger   = log.New(os.Stdout, "argocd-application-controller ", 0)
 )
 
 func NewCommand() *cobra.Command {
@@ -214,9 +222,9 @@ func getClusterFilter(clientConfig clientcmd.ClientConfig) func(cluster *v1alpha
 	name := "openshift-gitops-application-controller"
 	name = "argocd-application-controller"
 	sts, err := kubeClient.AppsV1().StatefulSets(namespace).Get(context.TODO(), name, metav1.GetOptions{})
-	availableReplicas := sts.Status.Replicas
-	replicas := int(availableReplicas)
-	log.Infof("AAA Processing all cluster shards %s: %v", replicas, err)
+	replicas = int32(*sts.Spec.Replicas)
+	replicas := int32(replicas)
+	log.Infof("Processing all cluster shards %d: %v", replicas, err)
 	shard := env.ParseNumFromEnv(common.EnvControllerShard, -1, -math.MaxInt32, math.MaxInt32)
 	var clusterFilter func(cluster *v1alpha1.Cluster) bool
 	if replicas > 1 {
@@ -226,9 +234,40 @@ func getClusterFilter(clientConfig clientcmd.ClientConfig) func(cluster *v1alpha
 			errors.CheckError(err)
 		}
 		log.Infof("Processing clusters from shard %d", shard)
-		clusterFilter = sharding.GetClusterFilter(replicas, shard)
+		clusterFilter = sharding.GetClusterFilter(int(replicas), shard)
 	} else {
-		log.Info("AAA Processing all cluster shards")
+		log.Info("Processing all cluster shards")
 	}
+
+	statefulSetUpdatedChannel := make(chan struct{})
+	informerFactory := informers.NewSharedInformerFactory(kubeClient, time.Hour*24)
+	statefulSetInformer := informerFactory.Apps().V1().StatefulSets()
+	log.Infof("statefulSetInformer created")
+	statefulSetInformer.Informer().AddEventHandler(
+		cache.ResourceEventHandlerFuncs{
+			UpdateFunc: updateReplicasCount,
+		},
+	)
+	//informerFactory.Start(statefulSetUpdatedChannel)
+	// Create a channel to stops the shared informer gracefully
+	stopper := make(chan struct{})
+	defer close(stopper)
+	log.Infof("statefulSetInformer stopper channel about to be started")
+	logChannel := make(chan byte, 1)
+	go func() {
+		statefulSetInformer.Informer().Run(stopper)
+		log.Printf("statefulSetInformer is running: %s", statefulSetInformer)
+		logChannel <- 1
+	}()
+	<-logChannel
+
+	defer close(statefulSetUpdatedChannel)
 	return clusterFilter
+}
+
+func updateReplicasCount(old, new interface{}) {
+	oldSts := old.(*v1.StatefulSet)
+	newSts := new.(*v1.StatefulSet)
+	log.Printf("StatefulSet updated:  old replicas count: %d, new value: %d", int32(*oldSts.Spec.Replicas), int32(*newSts.Spec.Replicas))
+	replicas = int32(*newSts.Spec.Replicas)
 }
