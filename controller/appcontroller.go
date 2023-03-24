@@ -37,6 +37,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/pointer"
 
 	"github.com/argoproj/argo-cd/v2/common"
 	statecache "github.com/argoproj/argo-cd/v2/controller/cache"
@@ -51,6 +52,7 @@ import (
 	argodiff "github.com/argoproj/argo-cd/v2/util/argo/diff"
 	appstatecache "github.com/argoproj/argo-cd/v2/util/cache/appstate"
 	"github.com/argoproj/argo-cd/v2/util/db"
+	"github.com/argoproj/argo-cd/v2/util/env"
 	"github.com/argoproj/argo-cd/v2/util/errors"
 	"github.com/argoproj/argo-cd/v2/util/glob"
 	logutils "github.com/argoproj/argo-cd/v2/util/log"
@@ -169,6 +171,11 @@ func NewApplicationController(
 	kubectl.SetOnKubectlRun(ctrl.onKubectlRun)
 	appInformer, appLister := ctrl.newApplicationInformerAndLister()
 	indexers := cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}
+	dbErr := computeClusterToShardsPlacement(db)
+	if dbErr != nil {
+		log.Warnf("error happened while trying to read or write cluster shards in database. Default placement will be used.")
+	}
+
 	projInformer := v1alpha1.NewAppProjectInformer(applicationClientset, namespace, appResyncPeriod, indexers)
 	projInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
@@ -222,16 +229,42 @@ func NewApplicationController(
 	return &ctrl, nil
 }
 
+func computeClusterToShardsPlacement(db db.ArgoDB) error {
+	replicas := env.ParseNumFromEnv(common.EnvControllerReplicas, 0, 0, math.MaxInt32)
+	ctx := context.TODO()
+	clustersList, dbErr := db.ListClusters(ctx)
+	if dbErr != nil {
+		return dbErr
+	}
+	clusters := clustersList.Items
+	sort.Slice(clusters, func(i, j int) bool {
+		return clusters[i].ID < clusters[j].ID
+	})
+	for i, cluster := range clusters {
+		if replicas > 0 {
+			cluster.Shard = pointer.Int64Ptr(int64(i % replicas))
+			_, err := db.UpdateCluster(ctx, &cluster)
+			if err != nil {
+				return err
+			}
+			log.Infof("Cluster %s:%s will be processed by shard %v", cluster.ID, cluster.Server, *cluster.Shard)
+		}
+	}
+	return nil
+}
+
 func (ctrl *ApplicationController) InvalidateProjectsCache(names ...string) {
 	if len(names) > 0 {
 		for _, name := range names {
 			ctrl.projByNameCache.Delete(name)
 		}
 	} else {
-		ctrl.projByNameCache.Range(func(key, _ interface{}) bool {
-			ctrl.projByNameCache.Delete(key)
-			return true
-		})
+		if ctrl != nil {
+			ctrl.projByNameCache.Range(func(key, _ interface{}) bool {
+				ctrl.projByNameCache.Delete(key)
+				return true
+			})
+		}
 	}
 }
 

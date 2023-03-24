@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
+	log "github.com/sirupsen/logrus"
 )
 
 func InferShard() (int, error) {
@@ -28,6 +29,7 @@ func InferShard() (int, error) {
 
 // GetShardByID calculates cluster shard as `clusterSecret.UID % replicas count`
 func GetShardByID(id string, replicas int) int {
+	log.Infof("Calculating cluster shard for cluster id: %s", id)
 	if id == "" {
 		return 0
 	} else {
@@ -42,10 +44,13 @@ func GetClusterFilter(replicas int, shard int) func(c *v1alpha1.Cluster) bool {
 		clusterShard := 0
 		//  cluster might be nil if app is using invalid cluster URL, assume shard 0 in this case.
 		if c != nil {
+			log.Debugf("Processing cluster: id/name/shard: %s/%s/%d", c.ID, c.Name, &c.Shard)
 			if c.Shard != nil {
 				clusterShard = int(*c.Shard)
+				log.Debugf("Value already set for cluster %s: shard: %d", c.Name, clusterShard)
 			} else {
 				clusterShard = GetShardByID(c.ID, replicas)
+				log.Debugf("Calculated cluster shard %d for cluster %s:%s", shard, c.Name, c.Server)
 			}
 		}
 		return clusterShard == shard

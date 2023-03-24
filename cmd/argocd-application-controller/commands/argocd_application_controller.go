@@ -131,7 +131,9 @@ func NewCommand() *cobra.Command {
 			var appController *controller.ApplicationController
 
 			settingsMgr := settings.NewSettingsManager(ctx, kubeClient, namespace, settings.WithRepoOrClusterChangedHandler(func() {
-				appController.InvalidateProjectsCache()
+				if appController != nil {
+					appController.InvalidateProjectsCache()
+				}
 			}))
 			kubectl := kubeutil.NewKubectl()
 			clusterFilter := getClusterFilter()
