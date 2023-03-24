@@ -140,7 +140,11 @@ func NewCommand() *cobra.Command {
 				appController.InvalidateProjectsCache()
 			}))
 			kubectl := kubeutil.NewKubectl()
+			log.Infof("1   .....")
+
 			clusterFilter := getClusterFilter(clientConfig)
+			log.Infof("2    .....")
+
 			appController, err = controller.NewApplicationController(
 				namespace,
 				settingsMgr,
@@ -159,7 +163,9 @@ func NewCommand() *cobra.Command {
 				persistResourceHealth,
 				clusterFilter,
 				applicationNamespaces)
+			log.Infof("3    .....")
 			errors.CheckError(err)
+			log.Infof("4    .....")
 			cacheutil.CollectMetrics(redisClient, appController.GetMetricsServer())
 
 			stats.RegisterStackDumper()
@@ -173,9 +179,9 @@ func NewCommand() *cobra.Command {
 				}
 				defer closeTracer()
 			}
-
+			log.Infof("5    .....")
 			go appController.Run(ctx, statusProcessors, operationProcessors)
-
+			log.Infof("6    .....")
 			// Wait forever
 			select {}
 		},
@@ -262,6 +268,7 @@ func getClusterFilter(clientConfig clientcmd.ClientConfig) func(cluster *v1alpha
 	<-logChannel
 
 	defer close(statefulSetUpdatedChannel)
+	log.Infof("Return clusterFilter method as the method")
 	return clusterFilter
 }
 
