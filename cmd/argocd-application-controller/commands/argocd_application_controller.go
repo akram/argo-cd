@@ -23,6 +23,7 @@ import (
 	cacheutil "github.com/argoproj/argo-cd/v2/util/cache"
 	appstatecache "github.com/argoproj/argo-cd/v2/util/cache/appstate"
 	"github.com/argoproj/argo-cd/v2/util/cli"
+	"github.com/argoproj/argo-cd/v2/util/db"
 	"github.com/argoproj/argo-cd/v2/util/env"
 	"github.com/argoproj/argo-cd/v2/util/errors"
 	kubeutil "github.com/argoproj/argo-cd/v2/util/kube"
@@ -212,7 +213,8 @@ func getClusterFilter(kubeClient *kubernetes.Clientset, settingsMgr *settings.Se
 			errors.CheckError(err)
 		}
 		log.Infof("Processing clusters from shard %d", shard)
-		distributionFunction := sharding.GetDistributionFunction(kubeClient, settingsMgr)
+		db := db.NewDB(settingsMgr.GetNamespace(), settingsMgr, kubeClient)
+		distributionFunction := sharding.GetDistributionFunction(db)
 		clusterFilter = sharding.GetClusterFilter(distributionFunction, shard)
 	} else {
 		log.Info("Processing all cluster shards")

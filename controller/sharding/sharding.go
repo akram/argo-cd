@@ -17,9 +17,7 @@ import (
 
 	"github.com/argoproj/argo-cd/v2/util/db"
 	"github.com/argoproj/argo-cd/v2/util/env"
-	"github.com/argoproj/argo-cd/v2/util/settings"
 	log "github.com/sirupsen/logrus"
-	"k8s.io/client-go/kubernetes"
 )
 
 func InferShard() (int, error) {
@@ -44,13 +42,13 @@ func GetClusterFilter(distributionFunction DistributionFunction, shard int) Clus
 	}
 }
 
-func GetDistributionFunction(kubernetesClient kubernetes.Interface, settingsMgr *settings.SettingsManager) DistributionFunction {
+func GetDistributionFunction(db db.ArgoDB) DistributionFunction {
 	filterFunctionName := env.StringFromEnv(common.EnvControllerShardingAlgorithm, "legacy")
 	distributionFunction := GetShardByIdUsingHashDistributionFunction()
 	log.Infof("Using filter function:  %s", filterFunctionName)
 	switch {
 	case filterFunctionName == "hash":
-		distributionFunction = GetShardByIndexModuloReplicasCountDistributionFunction(settingsMgr, kubernetesClient)
+		distributionFunction = GetShardByIndexModuloReplicasCountDistributionFunction(db)
 	case filterFunctionName == "legacy":
 		distributionFunction = GetShardByIdUsingHashDistributionFunction()
 	default:
@@ -60,10 +58,9 @@ func GetDistributionFunction(kubernetesClient kubernetes.Interface, settingsMgr 
 	return distributionFunction
 }
 
-func GetShardByIndexModuloReplicasCountDistributionFunction(settingsMgr *settings.SettingsManager, kubeClientset kubernetes.Interface) DistributionFunction {
+func GetShardByIndexModuloReplicasCountDistributionFunction(db db.ArgoDB) DistributionFunction {
 	replicas := env.ParseNumFromEnv(common.EnvControllerReplicas, 0, 0, math.MaxInt32)
 	ctx := context.Background()
-	db := db.NewDB(settingsMgr.GetNamespace(), settingsMgr, kubeClientset)
 	clustersList, dbErr := db.ListClusters(ctx)
 	if dbErr != nil {
 		log.Warnf("Error while querying clusters list from database: %v", dbErr)
