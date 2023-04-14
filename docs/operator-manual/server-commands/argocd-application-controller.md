@@ -30,7 +30,7 @@ argocd-application-controller [flags]
   -h, --help                                  help for argocd-application-controller
       --insecure-skip-tls-verify              If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
       --kubeconfig string                     Path to a kube config. Only required if out-of-cluster
-      --kubectl-parallelism-limit int         Number of allowed concurrent kubectl fork/execs. Any value less the 1 means no limit. (default 20)
+      --kubectl-parallelism-limit int         Number of allowed concurrent kubectl fork/execs. Any value less than 1 means no limit. (default 20)
       --logformat string                      Set the logging format. One of: text|json (default "text")
       --loglevel string                       Set the logging level. One of: debug|info|warn|error (default "info")
       --metrics-application-labels strings    List of Application labels that will be added to the argocd_application_labels metric
@@ -59,6 +59,7 @@ argocd-application-controller [flags]
       --sentinel stringArray                  Redis sentinel hostname and port (e.g. argocd-redis-ha-announce-0:6379). 
       --sentinelmaster string                 Redis sentinel master group name. (default "master")
       --server string                         The address and port of the Kubernetes API server
+      --sharding-method string                Enables choice of sharding method. Supported sharding methods are : [legacy, round-robin]  (default "legacy")
       --status-processors int                 Number of application status processors (default 20)
       --tls-server-name string                If provided, this name will be used to validate server certificate. If this is not provided, hostname used to contact the server is used.
       --token string                          Bearer token for authentication to the API server
