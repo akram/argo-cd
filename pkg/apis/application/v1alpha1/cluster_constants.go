@@ -39,7 +39,7 @@ const (
 var (
 
 	// K8sClientConfigQPS controls the QPS to be used in K8s REST client configs
-	K8sClientConfigQPS float32 = env.ParseFloatFromEnv(EnvK8sClientQPS, 50, 0, math.MaxFloat32)
+	K8sClientConfigQPS float32 = env.ParseFloatFromEnv(EnvK8sClientQPS, 50, -1, math.MaxFloat32)
 
 	// K8sClientConfigBurst controls the burst to be used in K8s REST client configs
 	K8sClientConfigBurst int = env.ParseNumFromEnv(EnvK8sClientBurst, int(2*K8sClientConfigQPS), 0, math.MaxInt32)
