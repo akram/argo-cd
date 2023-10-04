@@ -230,8 +230,6 @@ func getClusterSharding(kubeClient *kubernetes.Clientset, settingsMgr *settings.
 	} else {
 		replicasCount = env.ParseNumFromEnv(common.EnvControllerReplicas, 0, 0, math.MaxInt32)
 	}
-
-	db := db.NewDB(settingsMgr.GetNamespace(), settingsMgr, kubeClient)
 	if replicasCount > 1 {
 		// check for shard mapping using configmap if application-controller is a deployment
 		// else use existing logic to infer shard from pod name if application-controller is a statefulset
@@ -263,5 +261,6 @@ func getClusterSharding(kubeClient *kubernetes.Clientset, settingsMgr *settings.
 	} else {
 		log.Info("Processing all cluster shards")
 	}
+	db := db.NewDB(settingsMgr.GetNamespace(), settingsMgr, kubeClient)
 	return sharding.NewClusterSharding(db, shardNumber, replicasCount, shardingAlgorithm)
 }
