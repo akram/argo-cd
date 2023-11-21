@@ -92,6 +92,8 @@ type ArgoDB interface {
 
 	// GetApplicationControllerReplicas gets the replicas of application controller
 	GetApplicationControllerReplicas() int
+	// GetApplicationControllerPods returns the pods associated to the application controller replicas
+	GetApplicationControllerPods() []v1.Pod
 }
 
 type db struct {
@@ -165,4 +167,14 @@ func (db *db) GetApplicationControllerReplicas() int {
 		return int(*appControllerDeployment.Spec.Replicas)
 	}
 	return env.ParseNumFromEnv(common.EnvControllerReplicas, 0, 0, math.MaxInt32)
+}
+
+// GetApplicationControllerPods gets the pods of application controller
+func (db *db) GetApplicationControllerPods() []v1.Pod {
+	applicationControllerName := env.StringFromEnv(common.EnvAppControllerName, common.DefaultApplicationControllerName)
+	listOptions := metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/name=" + applicationControllerName,
+	}
+	pods, _ := db.kubeclientset.CoreV1().Pods("").List(context.Background(), listOptions)
+	return pods.Items
 }

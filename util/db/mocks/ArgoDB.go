@@ -8,6 +8,8 @@ import (
 	db "github.com/argoproj/argo-cd/v2/util/db"
 	mock "github.com/stretchr/testify/mock"
 
+	v1 "k8s.io/api/core/v1"
+
 	v1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 )
 
@@ -235,6 +237,22 @@ func (_m *ArgoDB) GetAllHelmRepositoryCredentials(ctx context.Context) ([]*v1alp
 	}
 
 	return r0, r1
+}
+
+// GetApplicationControllerPods provides a mock function with given fields:
+func (_m *ArgoDB) GetApplicationControllerPods() []v1.Pod {
+	ret := _m.Called()
+
+	var r0 []v1.Pod
+	if rf, ok := ret.Get(0).(func() []v1.Pod); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]v1.Pod)
+		}
+	}
+
+	return r0
 }
 
 // GetApplicationControllerReplicas provides a mock function with given fields:

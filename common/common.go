@@ -115,7 +115,9 @@ const (
 	LegacyShardingAlgorithm = "legacy"
 	// RoundRobinShardingAlgorithm is a flag value that can be opted for Sharding Algorithm it uses an equal distribution accross all shards
 	RoundRobinShardingAlgorithm = "round-robin"
-	DefaultShardingAlgorithm    = LegacyShardingAlgorithm
+	// ConsistentHashingWithBoundedLoadsAlgorithm is a flag value that can be opted for Sharding Algorithm it uses an equal distribution accross all shards that minimise reshuffling in case of clusters adds or removals.
+	ConsistentHashingWithBoundedLoadsAlgorithm = "consistent-hashing-with-bounded-loads"
+	DefaultShardingAlgorithm                   = LegacyShardingAlgorithm
 	// AppControllerHeartbeatUpdateRetryCount is the retry count for updating the Shard Mapping to the Shard Mapping ConfigMap used by Application Controller
 	AppControllerHeartbeatUpdateRetryCount = 3
 )

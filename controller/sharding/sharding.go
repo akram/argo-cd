@@ -21,6 +21,8 @@ import (
 	"github.com/argoproj/argo-cd/v2/util/db"
 	"github.com/argoproj/argo-cd/v2/util/env"
 	"github.com/argoproj/argo-cd/v2/util/settings"
+	"github.com/buraksezer/consistent"
+	"github.com/cespare/xxhash"
 	log "github.com/sirupsen/logrus"
 	kubeerrors "k8s.io/apimachinery/pkg/api/errors"
 )
@@ -38,7 +40,7 @@ var (
 
 const ShardControllerMappingKey = "shardControllerMapping"
 
-type DistributionFunction func(c *v1alpha1.Cluster) int
+type DistributionFunction func(c *v1alpha1.Cluster) string
 type ClusterFilterFunction func(c *v1alpha1.Cluster) bool
 
 // shardApplicationControllerMapping stores the mapping of Shard Number to Application Controller in ConfigMap.
@@ -65,7 +67,7 @@ func GetClusterFilter(db db.ArgoDB, distributionFunction DistributionFunction, s
 				log.Warnf("Specified cluster shard (%d) for cluster: %s is greater than the number of available shard. Assigning automatically.", requestedShard, c.Name)
 			}
 		} else {
-			clusterShard = distributionFunction(c)
+			clusterShard, _ = strconv.Atoi(distributionFunction(c))
 		}
 		return clusterShard == shard
 	}
@@ -77,6 +79,8 @@ func GetDistributionFunction(db db.ArgoDB, shardingAlgorithm string) Distributio
 	log.Infof("Using filter function:  %s", shardingAlgorithm)
 	distributionFunction := LegacyDistributionFunction(db)
 	switch shardingAlgorithm {
+	case common.ConsistentHashingWithBoundedLoadsAlgorithm:
+		distributionFunction = ConsistentHashingWithBoundedLoadsDistributionFunction(db)
 	case common.RoundRobinShardingAlgorithm:
 		distributionFunction = RoundRobinDistributionFunction(db)
 	case common.LegacyShardingAlgorithm:
@@ -94,23 +98,23 @@ func GetDistributionFunction(db db.ArgoDB, shardingAlgorithm string) Distributio
 // kept for compatibility reasons
 func LegacyDistributionFunction(db db.ArgoDB) DistributionFunction {
 	replicas := db.GetApplicationControllerReplicas()
-	return func(c *v1alpha1.Cluster) int {
+	return func(c *v1alpha1.Cluster) string {
 		if replicas == 0 {
-			return -1
+			return strconv.Itoa(-1)
 		}
 		if c == nil {
-			return 0
+			return strconv.Itoa(0)
 		}
 		id := c.ID
 		log.Debugf("Calculating cluster shard for cluster id: %s", id)
 		if id == "" {
-			return 0
+			return strconv.Itoa(0)
 		} else {
 			h := fnv.New32a()
 			_, _ = h.Write([]byte(id))
 			shard := int32(h.Sum32() % uint32(replicas))
 			log.Debugf("Cluster with id=%s will be processed by shard %d", id, shard)
-			return int(shard)
+			return strconv.Itoa(int(shard))
 		}
 	}
 }
@@ -123,24 +127,49 @@ func LegacyDistributionFunction(db db.ArgoDB) DistributionFunction {
 // in the cluster list
 func RoundRobinDistributionFunction(db db.ArgoDB) DistributionFunction {
 	replicas := db.GetApplicationControllerReplicas()
-	return func(c *v1alpha1.Cluster) int {
+	return func(c *v1alpha1.Cluster) string {
 		if replicas > 0 {
 			if c == nil { // in-cluster does not necessarly have a secret assigned. So we are receiving a nil cluster here.
-				return 0
+				return strconv.Itoa(0)
 			} else {
 				clusterIndexdByClusterIdMap := createClusterIndexByClusterIdMap(db)
 				clusterIndex, ok := clusterIndexdByClusterIdMap[c.ID]
 				if !ok {
 					log.Warnf("Cluster with id=%s not found in cluster map.", c.ID)
-					return -1
+					return strconv.Itoa(-1)
 				}
 				shard := int(clusterIndex % replicas)
 				log.Debugf("Cluster with id=%s will be processed by shard %d", c.ID, shard)
-				return shard
+				return strconv.Itoa(shard)
 			}
 		}
 		log.Warnf("The number of replicas (%d) is lower than 1", replicas)
-		return -1
+		return strconv.Itoa(-1)
+	}
+}
+
+// ConsistentHashingWithBoundedLoadsDistributionFunction returns a DistributionFunction using an homogeneous distribution algorithm:
+// for a given cluster the function will return the shard number based on the modulo of the cluster rank in
+// the cluster's list sorted by uid on the shard number.
+// This function ensures an homogenous distribution: each shards got assigned the same number of
+// clusters +/-1 , but with the drawback of a reshuffling of clusters accross shards in case of some changes
+// in the cluster list
+func ConsistentHashingWithBoundedLoadsDistributionFunction(db db.ArgoDB) DistributionFunction {
+	replicas := db.GetApplicationControllerReplicas()
+	return func(c *v1alpha1.Cluster) string {
+		if replicas > 0 {
+			if c == nil { // in-cluster does not necessarly have a secret assigned. So we are receiving a nil cluster here.
+				return strconv.Itoa(0)
+			} else {
+				consistent := initConsistentHashingWithBoundedLoads(db)
+				key := []byte(c.ID)
+				owner := consistent.LocateKey(key)
+				log.Infof("cluster '%s' with id='%s' is assigned to shard %s", c.Name, c.ID, owner)
+				return owner.String()
+			}
+		}
+		log.Warnf("The number of replicas (%d) is lower than 1", replicas)
+		return "-1"
 	}
 }
 
@@ -175,6 +204,54 @@ func getSortedClustersList(db db.ArgoDB) []v1alpha1.Cluster {
 	return clusters
 }
 
+type hasher struct{}
+
+func (h hasher) Sum64(data []byte) uint64 {
+	return xxhash.Sum64(data)
+}
+
+type ApplicationControllerShard struct {
+	v1.Pod
+	shardNumber int
+}
+
+func (m ApplicationControllerShard) String() string {
+	return string(m.UID)
+}
+
+func initConsistentHashingWithBoundedLoads(db db.ArgoDB) *consistent.Consistent {
+	replicasCount := 71
+	replicationFactor := 2 // because of a bug in the `consistent` library, we need to set 2, instead of 1 to not have replication.
+	load := 2.0
+	cfg := consistent.Config{
+		PartitionCount:    replicasCount,
+		ReplicationFactor: replicationFactor,
+		Load:              load,
+		Hasher:            hasher{},
+	}
+	applicationControllerShards := getApplicationControllerShards(db)
+	c := consistent.New(nil, cfg)
+	log.Infof("Application Controller has %d shards (replicas)", len(applicationControllerShards))
+	for i, shard := range applicationControllerShards {
+		log.Infof("Adding shard with id=%s and name=%s in index=%d to shards list", shard.UID, shard.Name, i)
+		c.Add(shard)
+	}
+	return c
+}
+
+func getApplicationControllerShards(db db.ArgoDB) []ApplicationControllerShard {
+	pods := db.GetApplicationControllerPods()
+	shards := make([]ApplicationControllerShard, 0)
+	for i, pod := range pods {
+		shard := ApplicationControllerShard{
+			Pod:         pod,
+			shardNumber: i,
+		}
+		shards = append(shards, shard)
+	}
+	return shards
+}
+
 func createClusterIndexByClusterIdMap(db db.ArgoDB) map[string]int {
 	clusters := getSortedClustersList(db)
 	log.Debugf("ClustersList has %d items", len(clusters))
@@ -182,7 +259,7 @@ func createClusterIndexByClusterIdMap(db db.ArgoDB) map[string]int {
 	clusterIndexedByClusterId := make(map[string]int)
 	for i, cluster := range clusters {
 		log.Debugf("Adding cluster with id=%s and name=%s to cluster's map", cluster.ID, cluster.Name)
-		clusterById[cluster.ID] = cluster
+		clusterById[cluster.ID] = v1alpha1.Cluster(cluster)
 		clusterIndexedByClusterId[cluster.ID] = i
 	}
 	return clusterIndexedByClusterId
