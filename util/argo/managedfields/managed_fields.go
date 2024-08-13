@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	logutils "github.com/argoproj/argo-cd/v2/util/log"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/structured-merge-diff/v4/fieldpath"
@@ -67,6 +68,8 @@ func Normalize(live, config *unstructured.Unstructured, trustedManagers []string
 // in the managed fields entry. If so, it will remove the fields from
 // the live and config objects so it is ignored in diffs.
 func normalize(mf v1.ManagedFieldsEntry, tr *typedResults) error {
+	log := logutils.NewLogrusLogger(logutils.NewWithCurrentConfig())
+	log.V(1).Info(fmt.Sprintf("AAAAAAAAAAAAAAAAAAAAAA %s:", "akram"))
 	mfs := &fieldpath.Set{}
 	err := mfs.FromJSON(bytes.NewReader(mf.FieldsV1.Raw))
 	if err != nil {
