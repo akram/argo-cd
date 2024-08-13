@@ -6,6 +6,7 @@ ARG BASE_IMAGE=docker.io/library/ubuntu:24.04@sha256:3f85b7caad41a95462cf5b787d8
 ####################################################################################################
 FROM docker.io/library/golang:1.22.1@sha256:0b55ab82ac2a54a6f8f85ec8b943b9e470c39e32c109b766bbc1b801f3fa8d3b AS builder
 
+RUN echo 'deb http://archive.debian.org/debian buster/updates main' > /etc/apt/sources.list
 RUN echo 'deb http://archive.debian.org/debian buster-backports main' >> /etc/apt/sources.list
 
 RUN apt-get update && apt-get install --no-install-recommends -y \
@@ -34,7 +35,7 @@ RUN ./install.sh helm && \
 ####################################################################################################
 # Argo CD Base - used as the base for both the release and dev argocd images
 ####################################################################################################
-FROM $BASE_IMAGE AS argocd-base
+FROM docker.io/library/ubuntu:24.04@sha256:3f85b7caad41a95462cf5b787d8a04604c8262cdcdf9a472b8c52ef83375fe15 AS argocd-base
 
 LABEL org.opencontainers.image.source="https://github.com/argoproj/argo-cd"
 
