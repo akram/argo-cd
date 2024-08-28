@@ -12,6 +12,12 @@ var (
 	//go:embed live_validating_webhook.yaml
 	LiveValidatingWebhookYaml string
 
+	//go:embed live_unmanaged_validating_webhook.yaml
+	LiveUnmanagedValidatingWebhookYaml string
+
 	//go:embed desired_validating_webhook.yaml
 	DesiredValidatingWebhookYaml string
+
+	//go:embed desired_validating_webhook_nil_cabundle.yaml
+	DesiredValidatingWebhookNilCabundleYaml string
 )
